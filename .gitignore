@@ -1,0 +1,10 @@
+# mac
+.DS_Store
+
+# 실행파일
+memdb_test
+memdb_bench
+a.out
+
+# object
+*.o

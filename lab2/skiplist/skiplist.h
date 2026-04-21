@@ -25,7 +25,15 @@ public:
 
   void Put(int key, const std::string& value);
   bool Get(int key, std::string* out_value) const;
+  // key의 "최신 버전"을 tombstone 포함 형태로 조회한다.
+  // - 반환값: key 존재 여부
+  // - out_entry->tombstone == true 이면 삭제 마커를 의미
+  // - Get()은 이 함수를 감싸서 tombstone이면 false를 반환한다.
+  bool GetEntry(int key, RangeEntry* out_entry) const;
   bool Delete(int key);
+  // [start_key, end_key] 범위에서 각 key의 최신 버전만 1개씩 반환한다.
+  // tombstone 여부를 유지해야 MemDB 계층에서 삭제 전파를 정확히 처리할 수 있다.
+  std::vector<RangeEntry> RangeScanEntries(int start_key, int end_key) const;
   std::vector<std::pair<int, std::string>>
   RangeScan(int start_key,
             int end_key) const; // skiplist 내부 range scan와 memdb range
