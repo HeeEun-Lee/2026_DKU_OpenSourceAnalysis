@@ -4,6 +4,8 @@
 # 실행파일
 memdb_test
 memdb_bench
+skiplist_p_bench
+my_bench
 a.out
 
 # object
