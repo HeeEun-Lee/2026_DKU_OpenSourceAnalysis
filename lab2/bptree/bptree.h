@@ -25,7 +25,31 @@ public:
 private:
   struct Node;
 
-  struct Node {};
+  struct Node {
+    explicit Node(bool leaf_node) : is_leaf(leaf_node), next(nullptr) {}
+
+    bool is_leaf;
+    std::vector<int> keys;
+
+    // Leaf payload.
+    std::vector<std::string> values;
+    Node* next;
+
+    // Internal node payload.
+    std::vector<Node*> children;
+  };
+
+  struct InsertResult {
+    bool split;
+    int promoted_key;
+    Node* right;
+  };
+
+  void Destroy(Node* node);
+  Node* FindLeaf(int key) const;
+  InsertResult InsertRecursive(Node* node, int key, const std::string& value);
+  int FirstKey(const Node* node) const;
+  void UpdateAncestorsFirstKeys(const std::vector<Node*>& path);
 
   Node* root_;
   int degree_;
