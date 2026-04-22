@@ -15,7 +15,6 @@ InMemoryDB::InMemoryDB(const MemDBOptions& options)
     : options_(options), mutable_(std::make_unique<MemTable>(options_)) {}
 
 // Put operation 구현
-// sequence number 구현 필요
 void InMemoryDB::Put(int key, const std::string& value) {
   // code
   size_t bytes = EntryBytes(key, value);
@@ -82,21 +81,20 @@ InMemoryDB::RangeScan(int start_key, int end_key) const {
   //          이후 오래된 계층에서 같은 key가 나와도 무시한다.
   std::map<int, std::string> result;
   std::unordered_set<int> deleted;
-
-  // 1️⃣ mutable
+  // 1. mutable
   auto vec = mutable_->list.RangeScanEntries(start_key, end_key);
 
   for (const auto& p : vec) {
 
     if (p.tombstone) {
       deleted.insert(p.key);
-      result.erase(p.key);   // 🔥 중요
+      result.erase(p.key);
     } else {
       result[p.key] = p.value;
     }
   }
   
-  // 2️⃣ immutable (최신 것부터 순회)
+  // 2. immutable (최신 것부터 순회)
   for (auto table_it = immutables_.rbegin(); table_it != immutables_.rend();
        ++table_it) {
 
@@ -109,7 +107,7 @@ InMemoryDB::RangeScan(int start_key, int end_key) const {
 
       if (p.tombstone) {
         deleted.insert(p.key);
-        result.erase(p.key);   // 🔥 중요
+        result.erase(p.key);
       } else {
         // 최신 계층에서 아직 값이 채워지지 않은 key만 반영
         if (result.find(p.key) == result.end()) {
@@ -119,7 +117,7 @@ InMemoryDB::RangeScan(int start_key, int end_key) const {
     }
   }
 
-  // 3️⃣ 변환
+  // 3. 변환
   for (const auto& kv : result) {
     out.push_back(kv);
   }
@@ -131,7 +129,7 @@ InMemoryDB::RangeScan(int start_key, int end_key) const {
 // Memtable size 제한 확인하는 함수
 void InMemoryDB::EnsureMutableCapacity(size_t entry_bytes) {
   // code
-  if (mutable_->size_bytes + entry_bytes > options_.max_memtable_bytes) {
+  if (mutable_->size_bytes + entry_bytes >= options_.max_memtable_bytes) {
 
     // 기존 mutable → immutable로 이동
     mutable_->immutable = true;

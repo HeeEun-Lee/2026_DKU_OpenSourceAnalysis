@@ -41,17 +41,22 @@ public:
 private:
   struct Node {
     int key;
-    int64_t seq; // sequence number
+    int64_t seq; // 각 key의 버전을 구분하기 위한 sequence number (클수록 최신)
     std::string value;
-    bool tombstone;
+    bool tombstone; // 삭제 여부 (true면 해당 key는 삭제된 상태)
     Node* next;
     Node* down; // 필요시 추가 노드 포인터 선언하여 사용 가능
   };
 
   int RandomLevel();
+  // (key, seq) 이상인 첫 번째 노드를 찾는다.
+  // update 벡터에는 각 레벨에서의 이전 노드를 저장한다.
+  // 삽입 시 해당 경로를 사용하여 bottom → top으로 노드를 연결한다.
   Node* FindGreaterOrEqual(int key, int64_t seq,
                            std::vector<Node*>* update) const;
-  static bool Less(int a_key, int64_t a_seq, int b_key, int64_t b_seq);
+  // (key, seq) 기준 비교 함수
+  // key는 오름차순, 같은 key일 경우 seq는 내림차순 (최신 먼저)
+  static bool Less(int a_key, int64_t a_seq, int b_key, int64_t b_seq); 
 
   Node* head_;
   int max_level_;

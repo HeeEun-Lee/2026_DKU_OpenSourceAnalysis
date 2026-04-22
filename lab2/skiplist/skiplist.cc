@@ -70,7 +70,6 @@ int SkipList::RandomLevel() {
 }
 
 // SkipList에 새로운 key 및 value를 삽입하는 Put 함수
-// sequence number 필요
 void SkipList::Put(int key, const std::string& value) {
   // code
   // 삽입할 노드의 높이 결정
@@ -81,43 +80,23 @@ void SkipList::Put(int key, const std::string& value) {
 
   // 각 레벨에서 삽입 위치를 저장할 경로
   std::vector<Node*> path;
-
-  // 가장 위 레벨부터 탐색 시작
-  Node* curr = head_;
-
-  // 1. 삽입 위치 탐색 (위 → 아래)
-  while (curr) {
-
-    // 현재 레벨에서 오른쪽으로 이동
-    // (key 오름차순, seq 내림차순 기준)
-    while (curr->next &&
-           (curr->next->key < key ||
-            (curr->next->key == key && curr->next->seq > seq))) {
-      curr = curr->next;
-    }
-
-    // 현재 위치를 path에 저장
-    path.push_back(curr);
-
-    // 아래 레벨로 이동
-    curr = curr->down;
-  }
+  FindGreaterOrEqual(key, seq, &path);
 
   // 아래 레벨부터 연결하기 위한 포인터
   Node* downNode = nullptr;
 
-  // 2. 아래 레벨부터 위로 올라가면서 삽입
+  // 아래 레벨부터 위로 올라가면서 삽입
   for (int i = 0; i < level; i++) {
 
     // 해당 레벨의 이전 노드
-    Node* prev = path[path.size() - 1 - i];
+    Node* prev = path[i];
 
     // 새 노드 생성
     Node* newNode = new Node{
         key,
         seq,
         value,
-        false,          // tombstone 아님
+        false,          
         prev->next,     // next 연결
         downNode        // 아래 레벨 연결
     };
@@ -130,7 +109,7 @@ void SkipList::Put(int key, const std::string& value) {
   }
 }
 
-// SkipList에 서 key에 해당하는 value 찾기. 존재하면 true, 없으면 (tombstone
+// SkipList에서 key에 해당하는 value 찾기. 존재하면 true, 없으면 (tombstone
 // 고려) false 반환. value는 out_value에 저장
 bool SkipList::Get(int key, std::string* out_value) const {
   RangeEntry entry;
@@ -143,30 +122,18 @@ bool SkipList::Get(int key, std::string* out_value) const {
 }
 
 bool SkipList::GetEntry(int key, RangeEntry* out_entry) const {
-  Node* curr = head_;
-  while (curr) {
-    // 현재 레벨에서 key 직전 노드까지 오른쪽으로 이동
-    // (next가 key 이상인 지점에서 멈춤)
-    while (curr->next && curr->next->key < key) {
-      curr = curr->next;
-    }
+  // seq를 매우 크게 잡으면 "해당 key의 가장 앞(최신)" 위치로 감
+  Node* node = FindGreaterOrEqual(key, INT64_MAX, nullptr);
 
-    // 중복 key의 최신 버전은 최하위 레벨에서 확정된다.
-    // 상위 레벨은 "일부 버전만 승격"될 수 있으므로 여기서 즉시 반환하면
-    // 오래된 버전을 최신으로 오인할 수 있다.
-    if (!curr->down) {
-      if (curr->next && curr->next->key == key) {
-        const Node* node = curr->next;
-        out_entry->key = node->key;
-        out_entry->value = node->value;
-        out_entry->tombstone = node->tombstone;
-        return true;
-      }
-      return false;
-    }
-    curr = curr->down;
+  if (!node || node->key != key) {
+    return false;
   }
-  return false;
+
+  out_entry->key = node->key;
+  out_entry->value = node->value;
+  out_entry->tombstone = node->tombstone;
+
+  return true;
 }
 
 // SkipList Delete operation. Tombstone으로 삭제 진행
@@ -178,24 +145,13 @@ bool SkipList::Delete(int key) {
   int64_t seq = next_seq_++;
 
   std::vector<Node*> path;
-  Node* curr = head_;
-
-  // 삽입 위치 탐색
-  while (curr) {
-    while (curr->next &&
-           (curr->next->key < key ||
-            (curr->next->key == key && curr->next->seq > seq))) {
-      curr = curr->next;
-    }
-    path.push_back(curr);
-    curr = curr->down;
-  }
+  FindGreaterOrEqual(key, seq, &path);
 
   Node* downNode = nullptr;
 
   // tombstone 노드 삽입
   for (int i = 0; i < level; i++) {
-    Node* prev = path[path.size() - 1 - i];
+    Node* prev = path[i];
 
     Node* newNode = new Node{
         key,
@@ -217,11 +173,17 @@ bool SkipList::Delete(int key) {
 std::vector<std::pair<int, std::string>>
 SkipList::RangeScan(int start_key, int end_key) const {
   std::vector<std::pair<int, std::string>> out;
-  const std::vector<RangeEntry> entries = RangeScanEntries(start_key, end_key);
+
+  auto entries = RangeScanEntries(start_key, end_key);
+
   out.reserve(entries.size());
+
   for (const auto& entry : entries) {
-    out.emplace_back(entry.key, entry.value);
+    if (!entry.tombstone) { 
+      out.emplace_back(entry.key, entry.value);
+    }
   }
+
   return out;
 }
 
@@ -229,32 +191,54 @@ std::vector<SkipList::RangeEntry>
 SkipList::RangeScanEntries(int start_key, int end_key) const {
   std::vector<RangeEntry> out;
 
-  Node* curr = head_;
-
-  // 가장 아래 레벨로 이동
-  while (curr->down) curr = curr->down;
-
-  // 시작 위치 찾기
-  while (curr->next && curr->next->key < start_key) {
-    curr = curr->next;
-  }
-
-  curr = curr->next;
-
-  // 하위 레벨에서는 동일 key가 연속해서 나타난다.
-  // 첫 번째 항목이 해당 key의 최신 버전이므로, 이후 중복 key는 건너뛴다.
-  int last_key = INT_MIN;
+  Node* curr = FindGreaterOrEqual(start_key, INT64_MAX, nullptr);
+  
+  bool first = true;
+  int last_key = 0;
 
   while (curr && curr->key <= end_key) {
 
-    // 같은 key 중 첫 번째 (최신)만 사용
-    if (curr->key != last_key) {
+    if (first || curr->key != last_key) {
       out.push_back({curr->key, curr->value, curr->tombstone});
       last_key = curr->key;
+      first = false;
     }
 
     curr = curr->next;
   }
 
   return out;
+}
+
+bool SkipList::Less(int a_key, int64_t a_seq,
+  int b_key, int64_t b_seq) {
+if (a_key != b_key) return a_key < b_key;
+return a_seq > b_seq; // 최신 먼저
+}
+
+SkipList::Node* SkipList::FindGreaterOrEqual(
+  int key, int64_t seq, std::vector<Node*>* update) const {
+
+    Node* curr = head_;
+    Node* last = nullptr; // bottom level prev
+  
+    while (curr) {
+      while (curr->next &&
+             Less(curr->next->key, curr->next->seq, key, seq)) {
+        curr = curr->next;
+      }
+  
+      if (update) {
+        update->push_back(curr);
+      }
+  
+      last = curr; // 마지막(prev) 저장
+      curr = curr->down;
+    }
+  
+    if (update) {
+      std::reverse(update->begin(), update->end());
+    }
+  
+    return last ? last->next : nullptr;  
 }
